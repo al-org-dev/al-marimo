@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-08-02
 
 - Initial release of `al_marimo`, implementing the plugin proposed in
   [alshedivat/al-folio#3541](https://github.com/alshedivat/al-folio/issues/3541) (source PR
