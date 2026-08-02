@@ -17,3 +17,11 @@ module RenderHelpers
     FakeSite.new({ "baseurl" => "/al-folio" }.merge(config))
   end
 end
+
+# Stands in for Jekyll::Drops::DocumentDrop: supports [] but is NOT a Hash.
+# The real `registers[:page]` is a Drop, and code that tests `is_a?(Hash)`
+# silently ignores front matter on every real page while passing Hash tests.
+class DropLike
+  def initialize(data) = @data = data
+  def [](key) = @data[key.to_s]
+end

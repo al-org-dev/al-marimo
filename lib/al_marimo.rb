@@ -14,7 +14,11 @@ require_relative "al_marimo/version"
 # pays nothing on pages that do not use it.
 module AlMarimo
   PLUGIN_ROOT = File.expand_path("..", __dir__)
-  ASSETS_ROOT = File.join(PLUGIN_ROOT, "lib", "assets")
+  # Jekyll writes a StaticFile to <dest>/<dir>/<name>, where <dir> is relative
+  # to the base below. That base must be lib/, not the gem root, or assets land
+  # at /lib/assets/... while every tag in this file points at /assets/... .
+  LIB_ROOT = __dir__
+  ASSETS_ROOT = File.join(LIB_ROOT, "assets")
   VENDOR_ROOT = File.join(PLUGIN_ROOT, "lib", "vendor")
 
   # marimo runs the notebook itself; only these origins are ever contacted.
@@ -32,8 +36,17 @@ module AlMarimo
 
   # Page-level opt-in. Anything truthy other than the string "false" counts, so
   # `marimo: true` and `marimo: snippets` both work.
+  #
+  # Reads through `[]` rather than testing for Hash: at render time Jekyll hands
+  # `registers[:page]` a Drop (Jekyll::Drops::DocumentDrop), not a Hash, so an
+  # `is_a?(Hash)` guard silently discards the front matter and the feature never
+  # switches on for any real page.
   def page_enabled?(page)
-    value = page.is_a?(Hash) ? page["marimo"] : nil
+    value = begin
+      page.respond_to?(:[]) ? page["marimo"] : nil
+    rescue StandardError
+      nil
+    end
     return false if value.nil? || value == false
     return false if value.respond_to?(:strip) && ["", "false"].include?(value.strip.downcase)
 
@@ -65,6 +78,14 @@ module AlMarimo
     "#{url}#{separator}mode=#{mode == "edit" ? "edit" : "read"}"
   end
 
+  # [relative_dir, filename] for everything this gem publishes. Exposed so the
+  # destination path can be asserted without booting a full Jekyll site.
+  def asset_entries
+    Dir.glob(File.join(ASSETS_ROOT, "**", "*")).sort.reject { |p| File.directory?(p) }.map do |source_path|
+      [File.dirname(source_path).sub("#{LIB_ROOT}/", ""), File.basename(source_path)]
+    end
+  end
+
   class AssetsGenerator < Jekyll::Generator
     safe true
     priority :low
@@ -73,8 +94,8 @@ module AlMarimo
       Dir.glob(File.join(ASSETS_ROOT, "**", "*")).sort.each do |source_path|
         next if File.directory?(source_path)
 
-        relative_dir = File.dirname(source_path).sub("#{PLUGIN_ROOT}/", "")
-        site.static_files << PluginStaticFile.new(site, PLUGIN_ROOT, relative_dir, File.basename(source_path))
+        relative_dir = File.dirname(source_path).sub("#{LIB_ROOT}/", "")
+        site.static_files << PluginStaticFile.new(site, LIB_ROOT, relative_dir, File.basename(source_path))
       end
     end
   end

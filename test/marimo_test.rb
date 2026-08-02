@@ -155,4 +155,41 @@ class MarimoTest < Minitest::Test
     assert_path_exists ROOT.join("lib/assets/al_marimo/js/marimo-init.js")
     assert_path_exists ROOT.join("lib/assets/al_marimo/css/marimo.css")
   end
+
+  # --- regression: Jekyll hands us a Drop, not a Hash ---------------------
+
+  def test_page_opt_in_reads_a_drop_not_just_a_hash
+    # Jekyll sets registers[:page] to a DocumentDrop. An earlier version tested
+    # `page.is_a?(Hash)`, which meant the opt-in never fired on a real page.
+    assert AlMarimo.page_enabled?(DropLike.new("marimo" => true))
+    refute AlMarimo.page_enabled?(DropLike.new("marimo" => false))
+  end
+
+  def test_scripts_emitted_for_a_drop_page
+    html = render("{% al_marimo_scripts %}", site: site_with, page: DropLike.new("marimo" => true))
+
+    assert_includes html, "marimo-snippets.js"
+  end
+
+  # --- regression: assets must land where the tags point ------------------
+
+  def test_assets_are_published_under_slash_assets
+    # Jekyll writes a StaticFile to <dest>/<dir>/<name>. Basing it on the gem
+    # root instead of lib/ puts everything under /lib/assets/..., while every
+    # tag emits /assets/... — a 404 that only shows up in a real build.
+    entries = AlMarimo.asset_entries
+
+    refute_empty entries
+    entries.each do |relative_dir, name|
+      assert relative_dir.start_with?("assets/al_marimo"),
+             "#{relative_dir}/#{name} would be published outside /assets/al_marimo"
+      refute_includes relative_dir, "lib/"
+    end
+  end
+
+  def test_every_referenced_asset_is_actually_published
+    published = AlMarimo.asset_entries.map { |dir, name| "/#{dir}/#{name}" }
+
+    assert_includes published, "/assets/al_marimo/js/marimo-snippets.js"
+  end
 end
