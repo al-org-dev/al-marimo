@@ -1,0 +1,10 @@
+{
+  "name": "@marimo-team/marimo-snippets",
+  "version": "1.0.3",
+  "source_url": "https://cdn.jsdelivr.net/npm/@marimo-team/marimo-snippets@1.0.3/src/extractor.js",
+  "sha384": "sha384-wu02bTA++0bnvSB8GwNxnJmRB7AYFTgpaidK3uEVGrV6yu6QcdOt+J9vtHvla1vZ",
+  "sha256": "QENbXBT2k95BXBwOn5Ctx6Pr0cp46cyYWx2gRMv7vqw=",
+  "bytes": 8042,
+  "license": "Apache-2.0",
+  "note": "Vendored rather than loaded from a CDN. jsDelivr's default package URL serves a dynamically minified build and documents that it must not be used with SRI, since a Terser bump changes the hash and breaks every site at once. The unminified source path is stable, so it is pinned and vendored here."
+}
