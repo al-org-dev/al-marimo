@@ -36,8 +36,13 @@ Nothing is loaded on pages without that flag, so bundling the plugin costs nothi
 {% al_marimo_embed src="https://marimo.app/l/abc123" height="700px" caption="Sampling demo" %}
 ```
 
-Accepts `src` (required), `height`, `width`, `mode` (`read` / `edit`), `embed`, `title`, `caption`, `class`. `src` may
-be a literal or a Liquid variable.
+Accepts `src` (required), `height`, `width`, `mode` (`read` / `edit`), `embed`, `title`, `caption`, `class`, `sandbox`.
+`src` may be a literal or a Liquid variable.
+
+The iframe is sandboxed. A notebook on another origin (such as `marimo.app`) gets `allow-same-origin`, which its
+in-browser runtime needs; one on your own site's origin does not (see [Differences from the source PR](#differences-from-the-source-pr)). Pass
+`sandbox="..."` to set the token list yourself, for example for a WASM export hosted on your own domain that needs
+browser storage.
 
 ### Inline runnable snippets
 
@@ -69,8 +74,13 @@ minifier upgrade changes the bytes and would break every site at once. So the st
 exact version, with its digest recorded in [`lib/vendor/provenance.json`](lib/vendor/provenance.json) and a test that
 fails if the shipped file drifts from it.
 
-**Embedded notebooks do not get `allow-same-origin`.** The PR's sandbox included it, which lets the embedded
-third-party notebook reach the embedding page's storage and cookies — defeating the purpose of the sandbox.
+**`allow-same-origin` is granted only across origins.** The PR always included it. 1.0.0 always withheld it, on the
+mistaken belief that it would let the notebook reach the embedding page's storage and cookies. It doesn't: the token only
+lets a frame keep its _own_ origin, and the browser still walls a cross-origin frame off from the parent. Withholding it
+gave `marimo.app` an opaque origin, where its runtime can't use storage, so notebooks rendered blank
+([#1](https://github.com/al-org-dev/al-marimo/issues/1)). The genuine risk is `allow-scripts` + `allow-same-origin` on a
+frame that shares the page's origin, which can remove its own sandbox, so for relative and same-origin `src` the token is
+still withheld.
 
 ## Note on third-party contact
 
