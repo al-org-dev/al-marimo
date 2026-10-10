@@ -83,14 +83,70 @@ class MarimoTest < Minitest::Test
     assert_includes html, 'loading="lazy"'
   end
 
-  def test_embed_sandbox_withholds_same_origin
-    # The notebook is third-party code. allow-same-origin would let it reach the
-    # embedding page's storage and cookies, which is exactly what a sandbox on an
-    # untrusted frame exists to prevent.
-    html = render(%({% al_marimo_embed src="https://marimo.app/l/abc" %}), site: site_with, page: on_page)
+  def sandbox_of(html)
+    html[/sandbox="([^"]*)"/, 1].to_s.split
+  end
 
-    assert_includes html, "sandbox="
-    refute_includes html, "allow-same-origin"
+  def test_cross_origin_embed_keeps_its_own_origin
+    # al-org-dev/al-marimo#1: without allow-same-origin the frame gets an opaque
+    # origin, marimo's in-browser runtime can't use its own storage, and the
+    # notebook body stays blank. For a frame on another origin the token does
+    # not expose the embedding page: the browser's cross-origin wall still holds.
+    site = site_with("url" => "https://someone.github.io")
+    tokens = sandbox_of(render(%({% al_marimo_embed src="https://marimo.app/l/abc" %}), site: site, page: on_page))
+
+    assert_includes tokens, "allow-same-origin"
+    # Otherwise "Open in molab" opens a tab that inherits this sandbox.
+    assert_includes tokens, "allow-popups-to-escape-sandbox"
+    %w[allow-scripts allow-downloads allow-popups allow-forms].each { |t| assert_includes tokens, t }
+  end
+
+  def test_same_origin_embed_withholds_same_origin
+    # allow-scripts + allow-same-origin on a frame that shares the page's origin
+    # can reach frameElement and strip its own sandbox. That is the case the
+    # token must stay withheld for: relative URLs and the site's own host.
+    site = site_with("url" => "https://someone.github.io")
+    [
+      "/al-folio/notebooks/demo.html",
+      "notebooks/demo.html",
+      "https://someone.github.io/al-folio/notebooks/demo.html",
+      "https://SOMEONE.github.io:443/notebooks/demo.html",
+    ].each do |src|
+      tokens = sandbox_of(render(%({% al_marimo_embed src="#{src}" %}), site: site, page: on_page))
+
+      refute_includes tokens, "allow-same-origin", src
+      assert_includes tokens, "allow-scripts", src
+    end
+  end
+
+  def test_origin_comparison_includes_scheme_and_port
+    site = site_with("url" => "https://someone.github.io")
+
+    assert AlMarimo.cross_origin?("http://someone.github.io/nb", site.config["url"])
+    assert AlMarimo.cross_origin?("https://someone.github.io:8443/nb", site.config["url"])
+    assert AlMarimo.cross_origin?("//marimo.app/l/abc", site.config["url"])
+  end
+
+  def test_absolute_url_without_a_site_url_counts_as_cross_origin
+    # Nothing to compare against, but an absolute URL is by construction not a
+    # relative path into this site.
+    tokens = sandbox_of(render(%({% al_marimo_embed src="https://marimo.app/l/abc" %}), site: site_with, page: on_page))
+
+    assert_includes tokens, "allow-same-origin"
+  end
+
+  def test_unusable_urls_are_treated_as_same_origin
+    refute AlMarimo.cross_origin?("javascript:alert(1)", "https://someone.github.io")
+    refute AlMarimo.cross_origin?("ftp://files.example.com/nb", "https://someone.github.io")
+    refute AlMarimo.cross_origin?("http://exa mple.com/", "https://someone.github.io")
+  end
+
+  def test_explicit_sandbox_attribute_overrides_and_is_escaped
+    html = render(%({% al_marimo_embed src="/nb.html" sandbox="allow-scripts allow-same-origin" %}), site: site_with, page: on_page)
+    assert_equal %w[allow-scripts allow-same-origin], sandbox_of(html)
+
+    html = render(%({% al_marimo_embed src="/nb.html" sandbox='allow-scripts" onload="x' %}), site: site_with, page: on_page)
+    refute_includes html, %(" onload=")
   end
 
   def test_embed_without_src_renders_nothing

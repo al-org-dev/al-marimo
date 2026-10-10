@@ -2,6 +2,7 @@
 
 require "cgi"
 require "json"
+require "uri"
 require "jekyll"
 require "liquid"
 require_relative "al_marimo/version"
@@ -76,6 +77,56 @@ module AlMarimo
       separator = "&"
     end
     "#{url}#{separator}mode=#{mode == "edit" ? "edit" : "read"}"
+  end
+
+  SANDBOX_BASE = %w[allow-scripts allow-downloads allow-popups allow-forms].freeze
+
+  # Sandbox tokens for an embedded notebook iframe.
+  #
+  # `allow-same-origin` does not give the frame access to the embedding page.
+  # It only lets the frame keep its *own* origin (e.g. marimo.app); the browser
+  # still keeps a cross-origin frame away from the parent's DOM, cookies and
+  # storage either way. Withholding it gives the frame an opaque origin instead,
+  # where localStorage and IndexedDB throw and workers can't be started from the
+  # frame's own URLs -- which is what marimo's in-browser (Pyodide) runtime needs,
+  # so the notebook body stays blank (al-org-dev/al-marimo#1).
+  #
+  # The real hazard is narrower: `allow-scripts` plus `allow-same-origin` on a
+  # frame that is *same-origin with the embedding page* lets it reach
+  # `frameElement` and remove its own sandbox. So the token is granted only when
+  # the notebook is on a different origin from the site, and withheld for
+  # relative or same-origin URLs (e.g. a WASM export hosted on the site itself).
+  # `allow-popups-to-escape-sandbox` goes with it so "Open in molab" opens a
+  # normal tab rather than one that inherits this sandbox.
+  def sandbox_for(src, site_url)
+    tokens = SANDBOX_BASE.dup
+    tokens.push("allow-same-origin", "allow-popups-to-escape-sandbox") if cross_origin?(src, site_url)
+    tokens.join(" ")
+  end
+
+  # True only for an absolute http(s) or protocol-relative URL whose origin
+  # differs from the site's. Relative and unparseable URLs are treated as
+  # same-origin, which is the safe default.
+  def cross_origin?(src, site_url)
+    target = parse_origin(src)
+    return false unless target
+
+    site = parse_origin(site_url)
+    # Without a site url there is nothing to compare against; an absolute URL to
+    # another host is then, by construction, not this site.
+    site.nil? || target != site
+  end
+
+  def parse_origin(value)
+    uri = URI.parse(value.to_s.strip)
+    return nil if uri.host.nil? || uri.host.empty?
+
+    scheme = (uri.scheme || "https").downcase
+    return nil unless %w[http https].include?(scheme)
+
+    [scheme, uri.host.downcase, uri.port || (scheme == "http" ? 80 : 443)]
+  rescue URI::InvalidURIError
+    nil
   end
 
   # [relative_dir, filename] for everything this gem publishes. Exposed so the
@@ -167,10 +218,11 @@ module AlMarimo
       figure << %(<div class="al-marimo-embed">)
       figure << %(<iframe src="#{AlMarimo.escape(url)}")
       figure << %( class="#{AlMarimo.escape(extra_class)}") if extra_class
-      # Deliberately omits allow-same-origin: the notebook is third-party code,
-      # and granting it same-origin access to the embedding site would let it
-      # read the parent document's storage and cookies.
-      figure << %( sandbox="allow-scripts allow-downloads allow-popups allow-forms")
+      # See AlMarimo.sandbox_for. An explicit sandbox="..." attribute overrides
+      # the computed value, for setups it can't infer (e.g. a same-origin WASM
+      # export that needs its own storage).
+      sandbox = @attributes["sandbox"] || AlMarimo.sandbox_for(url, site.config["url"])
+      figure << %( sandbox="#{AlMarimo.escape(sandbox)}")
       figure << %( width="#{AlMarimo.escape(width)}" height="#{AlMarimo.escape(height)}")
       figure << %( title="#{AlMarimo.escape(title)}" loading="lazy" frameborder="0" allowfullscreen></iframe>)
       figure << %(</div>)
